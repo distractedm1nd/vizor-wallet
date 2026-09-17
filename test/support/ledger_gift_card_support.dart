@@ -81,7 +81,10 @@ class LedgerGiftStorage implements PaymentLinkRecoveryStorage {
   }
 
   @override
-  Future<void> delete() async => data = null;
+  Future<void> delete() async {
+    if (failWrites) throw StateError('storage unavailable');
+    data = null;
+  }
 }
 
 class LedgerGiftHardware implements PaymentLinkHardwareSigningService {
@@ -175,12 +178,8 @@ class LedgerGiftOperations implements LedgerSignedOperationService {
   }) async {
     broadcasts++;
     await broadcastGate?.future;
-    if (terminalRejection) {
-      entry = null;
-      throw StateError(
-        'Ledger signed operation cannot be retried: broadcast rejected',
-      );
-    }
+    final resultStatus = terminalRejection ? 'rejected' : status;
+    final txid = terminalRejection ? '' : 'gift-txid';
     final old = entry!;
     entry = LedgerSignedOperationMetadata(
       operationId: old.operationId,
@@ -188,13 +187,13 @@ class LedgerGiftOperations implements LedgerSignedOperationService {
       kind: old.kind,
       externalRef: old.externalRef,
       state: 'result_pending_ack',
-      txid: 'gift-txid',
-      status: status,
+      txid: txid,
+      status: resultStatus,
     );
     return LedgerSignedOperationBroadcastResult(
       operationId: operationId,
-      txid: 'gift-txid',
-      status: status,
+      txid: txid,
+      status: resultStatus,
       requiresAck: true,
     );
   }

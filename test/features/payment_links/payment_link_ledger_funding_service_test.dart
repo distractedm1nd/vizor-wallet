@@ -138,7 +138,7 @@ void main() {
       );
       expect(await h.recovery.load(), isEmpty);
       expect(h.operations.entry, isNull);
-      expect(h.operations.acks, 0);
+      expect(h.operations.acks, 1);
     },
   );
 

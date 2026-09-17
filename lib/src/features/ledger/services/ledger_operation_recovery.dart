@@ -170,6 +170,18 @@ class LedgerOperationRecoveryCoordinator {
       if (claim == null) continue;
       LedgerSignedOperationBroadcastResult? result;
       try {
+        if (operation.kind == LedgerSignedOperationKind.giftCard) {
+          final address = operation.externalRef;
+          if (address == null || address.isEmpty) {
+            throw StateError(
+              'The Ledger gift card recovery reference is missing.',
+            );
+          }
+          await _ref
+              .read(paymentLinkLedgerFundingServiceProvider)
+              .resume(accountUuid: operation.accountUuid, address: address);
+          continue;
+        }
         if (operation.state == 'signed_pending_broadcast') {
           result = await operationService.broadcast(
             operationId: operation.operationId,
@@ -197,9 +209,8 @@ class LedgerOperationRecoveryCoordinator {
         if (result == null) continue;
         switch (operation.kind) {
           case LedgerSignedOperationKind.giftCard:
-            await _ref
-                .read(paymentLinkLedgerFundingServiceProvider)
-                .complete(operation, result);
+            // Gift Cards use the shared resume/cleanup path above.
+            break;
           case LedgerSignedOperationKind.swapDeposit:
           case LedgerSignedOperationKind.payDeposit:
             final disposition = classifyLedgerDepositBroadcastResult(result);

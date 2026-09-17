@@ -214,12 +214,7 @@ class PaymentLinkLedgerFundingService {
       }
       settlementStatus = result.status;
       await complete(entry, result);
-      try {
-        await refresh();
-      } catch (_) {
-        /* A sync refresh cannot undo funding. */
-      }
-      if (result.status == 'expired') {
+      if (result.status == 'expired' || result.status == 'rejected') {
         throw const LedgerGiftFundingTerminalException();
       }
       return PaymentLinkHardwareFundingResult(
@@ -230,6 +225,11 @@ class PaymentLinkLedgerFundingService {
       );
     } finally {
       if (draft != null) await settleProposal(draft, settlementStatus);
+      try {
+        await refresh();
+      } catch (_) {
+        /* A sync refresh cannot undo funding or terminal cleanup. */
+      }
     }
   });
 
@@ -256,7 +256,7 @@ class PaymentLinkLedgerFundingService {
     if (record != null && record.sourceAccountUuid != operation.accountUuid) {
       throw StateError('The gift card belongs to a different account.');
     }
-    if (result.status == 'expired') {
+    if (result.status == 'expired' || result.status == 'rejected') {
       if (record?.state == PaymentLinkRecoveryState.draft) {
         await recovery.removeUnbroadcastDraft(address: address);
       }

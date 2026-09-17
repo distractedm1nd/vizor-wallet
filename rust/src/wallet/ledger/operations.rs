@@ -276,15 +276,7 @@ pub(crate) async fn broadcast(
             &result.status,
             result.message.as_deref(),
         ),
-        Err(error) => {
-            if record_broadcast_failure(db_path, network, operation_id, &error)? {
-                Err(format!(
-                    "Ledger signed operation cannot be retried: {error}"
-                ))
-            } else {
-                Err(error)
-            }
-        }
+        Err(error) => record_broadcast_error(db_path, network, operation_id, stored.kind, &error),
     }
 }
 
@@ -432,6 +424,36 @@ fn apply_broadcast_outcome(
             requires_ack: !clean_terminal,
         })
     })
+}
+
+// Gift Card secrets must be cleaned up before terminal results disappear.
+// Reuse the acknowledged-result state so a crash or storage failure can retry
+// cleanup without rebroadcasting a rejected transaction.
+fn record_broadcast_error(
+    db_path: &str,
+    network: WalletNetwork,
+    operation_id: &str,
+    kind: OperationKind,
+    error: &str,
+) -> Result<BroadcastResult, String> {
+    if kind == OperationKind::GiftCard && is_terminal_broadcast_failure(error) {
+        return apply_broadcast_outcome(
+            db_path,
+            network,
+            operation_id,
+            kind,
+            "",
+            "rejected",
+            Some(error),
+        );
+    }
+    if record_broadcast_failure(db_path, network, operation_id, error)? {
+        Err(format!(
+            "Ledger signed operation cannot be retried: {error}"
+        ))
+    } else {
+        Err(error.to_string())
+    }
 }
 
 fn record_broadcast_failure(
@@ -1121,6 +1143,29 @@ mod tests {
         assert_eq!(listed[0].state, STATE_SIGNED_PENDING_BROADCAST);
         assert_eq!(listed[0].status.as_deref(), Some("retryable_error"));
         assert!(acknowledge(db_path, WalletNetwork::Main, "send-1").is_err());
+    }
+
+    #[test]
+    fn rejected_gift_card_keeps_terminal_result_until_cleanup_acknowledges() {
+        let file = tempfile::NamedTempFile::new().unwrap();
+        let db_path = file.path().to_str().unwrap();
+        checkpoint_test_operation(db_path, "gift-1", "gift_card");
+        let result = record_broadcast_error(
+            db_path,
+            WalletNetwork::Main,
+            "gift-1",
+            OperationKind::GiftCard,
+            "broadcast rejected",
+        )
+        .unwrap();
+        assert!(result.requires_ack);
+        assert_eq!(result.status, "rejected");
+        let listed = list(db_path, WalletNetwork::Main, None).unwrap();
+        assert_eq!(listed[0].state, STATE_RESULT_PENDING_ACK);
+        assert_eq!(listed[0].status.as_deref(), Some("rejected"));
+        assert!(load_for_broadcast(db_path, WalletNetwork::Main, "gift-1").is_err());
+        acknowledge(db_path, WalletNetwork::Main, "gift-1").unwrap();
+        assert!(list(db_path, WalletNetwork::Main, None).unwrap().is_empty());
     }
 
     #[test]

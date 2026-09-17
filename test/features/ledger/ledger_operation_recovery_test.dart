@@ -56,6 +56,47 @@ void main() {
     },
   );
 
+  test('rejected gift cleanup survives storage failure and restart', () async {
+    final h = LedgerGiftHarness();
+    final draft = await h.prepare();
+    await h.operations.checkpoint(
+      operationId: h.service.operationId('account-1', draft.link.address),
+      accountUuid: 'account-1',
+      kind: LedgerSignedOperationKind.giftCard,
+      externalRef: draft.link.address,
+      pcztWithProofsBytes: [2],
+      pcztWithSignaturesBytes: [3],
+    );
+    h.operations.terminalRejection = true;
+    final container = _container(
+      operationService: h.operations,
+      sync: _RecoverySyncNotifier(),
+      giftFunding: h.service,
+    );
+    addTearDown(container.dispose);
+    await container.read(walletProvider.future);
+    h.storage.failWrites = true;
+    await container.read(ledgerOperationRecoveryCoordinatorProvider).recover();
+    expect(h.operations.entry!.status, 'rejected');
+    expect(h.operations.acks, 0);
+    expect(await h.recovery.countUnsharedFundedForAccount('account-1'), 1);
+
+    h.storage.failWrites = false;
+    // A fresh coordinator must consume a terminal result with no txid.
+    final restarted = _container(
+      operationService: h.operations,
+      sync: _RecoverySyncNotifier(),
+      giftFunding: h.service,
+    );
+    addTearDown(restarted.dispose);
+    await restarted.read(walletProvider.future);
+    await restarted.read(ledgerOperationRecoveryCoordinatorProvider).recover();
+    expect(h.operations.broadcasts, 1);
+    expect(h.operations.acks, 1);
+    expect(await h.recovery.load(), isEmpty);
+    expect(await h.recovery.countUnsharedFundedForAccount('account-1'), 0);
+  });
+
   test(
     'destructive drain includes deposit persistence and acknowledgement',
     () async {
