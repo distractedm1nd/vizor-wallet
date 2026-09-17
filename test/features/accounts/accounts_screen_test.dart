@@ -1035,7 +1035,7 @@ void main() {
 
     expect(
       find.text(
-        'This account has 1 unshared gift card link. Copy it before removing this account.',
+        'This account has 1 unshared gift card link. Open Gift Cards to resolve incomplete funding. Copy it before removing this account.',
       ),
       findsOneWidget,
     );

@@ -161,6 +161,27 @@ void main() {
     },
   );
 
+  test('saved draft cancellation refuses prepared and foreign drafts', () async {
+    final h = LedgerGiftHarness();
+    final draft = await h.prepare();
+    await expectLater(
+      h.service.discardUnsubmitted(
+        accountUuid: 'account-1',
+        address: draft.link.address,
+      ),
+      throwsStateError,
+    );
+    await expectLater(
+      h.service.discardUnsubmitted(
+        accountUuid: 'another-account',
+        address: draft.link.address,
+      ),
+      throwsStateError,
+    );
+    expect(await h.recovery.load(), hasLength(1));
+    expect(h.operations.broadcasts, 0);
+  });
+
   test('deleted account cannot checkpoint a late device signature', () async {
     final h = LedgerGiftHarness();
     final draft = await h.prepare();

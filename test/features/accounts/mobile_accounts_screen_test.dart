@@ -590,7 +590,8 @@ void main() {
         count: 1,
       ),
       message:
-          'Copy your unshared gift card links before deleting this account.',
+          'Open Gift Cards to resolve incomplete funding and copy your unshared links '
+          'before deleting this account.',
     ),
     (
       name: 'incoming Gift Cards',

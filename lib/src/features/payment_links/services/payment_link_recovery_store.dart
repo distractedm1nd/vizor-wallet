@@ -35,7 +35,8 @@ class PaymentLinkUnsharedGiftCardsException implements Exception {
 
   @override
   String toString() =>
-      'Copy your unshared gift card links before deleting this account.';
+      'Open Gift Cards to resolve incomplete funding and copy your unshared links '
+      'before deleting this account.';
 }
 
 const _fieldNotProvided = Object();

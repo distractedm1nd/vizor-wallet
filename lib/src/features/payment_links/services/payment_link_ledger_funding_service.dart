@@ -52,6 +52,15 @@ class LedgerGiftFundingTerminalException implements Exception {
   String toString() => message;
 }
 
+class LedgerGiftFundingUnavailableException implements Exception {
+  const LedgerGiftFundingUnavailableException();
+
+  @override
+  String toString() =>
+      'No saved signed transaction is available. Keep Vizor synced to check '
+      'whether funding completed or clear the draft after its transaction expires.';
+}
+
 /// Reuses Gift Card draft/proof storage but uses the Ledger signed outbox.
 /// No UI callback owns persistence or acknowledgement.
 class PaymentLinkLedgerFundingService {
@@ -122,6 +131,31 @@ class PaymentLinkLedgerFundingService {
     await refresh();
   });
 
+  /// Only drafts with no prepared transaction or submission marker are safe
+  /// to cancel without the original signing session. Older prepared drafts
+  /// must be reconciled through confirmation or expiry instead.
+  Future<void> discardUnsubmitted({
+    required String accountUuid,
+    required String address,
+  }) => lifecycle.run(() async {
+    _requireAccount(accountUuid);
+    final record = (await recovery.load())
+        .where((record) => record.link.address == address)
+        .firstOrNull;
+    if (record == null) return;
+    if (record.sourceAccountUuid != accountUuid) {
+      throw StateError('The gift card belongs to a different account.');
+    }
+    final id = operationId(accountUuid, address);
+    if ((await operations.list()).any((entry) => entry.operationId == id)) {
+      throw StateError(
+        'This gift card has a saved transaction. Resume funding.',
+      );
+    }
+    await recovery.removeUnsubmittedDraft(address: address);
+    await refresh();
+  });
+
   Future<PaymentLinkHardwareFundingResult> submit({
     required String accountUuid,
     required PaymentLinkHardwarePcztDraft draft,
@@ -185,9 +219,7 @@ class PaymentLinkLedgerFundingService {
             fundingMetadataSaved: true,
           );
         }
-        throw StateError(
-          'The saved Ledger gift card transaction is unavailable.',
-        );
+        throw const LedgerGiftFundingUnavailableException();
       }
       LedgerSignedOperationBroadcastResult result;
       try {

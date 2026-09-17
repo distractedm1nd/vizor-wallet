@@ -21,6 +21,7 @@ import '../../../core/widgets/app_toast.dart';
 import '../../../providers/account_provider.dart';
 import '../../../providers/privacy_mode_provider.dart';
 import '../../swap/models/swap_fiat_value_formatting.dart';
+import '../../ledger/services/ledger_operation_lifecycle.dart';
 import '../../../providers/rpc_endpoint_provider.dart';
 import '../../../providers/sync_provider.dart';
 import '../../../providers/zec_price_change_provider.dart';
@@ -31,6 +32,7 @@ import '../providers/payment_link_intake_provider.dart';
 import '../services/payment_link_clipboard.dart';
 import '../services/payment_link_entry_policy.dart';
 import '../services/payment_link_hardware_signing_service.dart';
+import '../services/payment_link_ledger_funding_service.dart';
 import '../services/payment_link_qr_image_saver.dart';
 import '../services/payment_link_qr_export.dart';
 import '../services/payment_link_received_store.dart';
@@ -2443,8 +2445,75 @@ class _PaymentLinksScreenState extends ConsumerState<PaymentLinksScreen> {
     );
   }
 
+  bool _canRecoverLedgerDraft(PaymentLinkRecoveryRecord record) =>
+      record.state == PaymentLinkRecoveryState.draft &&
+      (ref.read(accountProvider).value?.accounts.any(
+            (account) =>
+                account.uuid == record.sourceAccountUuid && account.isLedger,
+          ) ??
+          false);
+
+  Future<void> _recoverLedgerDraft(PaymentLinkRecoveryRecord record) async {
+    if (_operationInProgress) return;
+    final service = ref.read(paymentLinkLedgerFundingServiceProvider);
+    final claim = ref
+        .read(ledgerOperationClaimRegistryProvider)
+        .tryClaim(
+          service.operationId(record.sourceAccountUuid, record.link.address),
+        );
+    if (claim == null) {
+      _showError(
+        'Gift card funding is already being checked. Try again shortly.',
+      );
+      return;
+    }
+    setState(() => _operationInProgress = true);
+    Object? failure;
+    try {
+      if (record.isInertDraft) {
+        await service.discardUnsubmitted(
+          accountUuid: record.sourceAccountUuid,
+          address: record.link.address,
+        );
+      } else {
+        await service.resume(
+          accountUuid: record.sourceAccountUuid,
+          address: record.link.address,
+        );
+      }
+    } catch (error) {
+      failure = error;
+      log('PaymentLinks: Ledger funding recovery failed: $error');
+    } finally {
+      claim.release();
+      // Also reconcile old drafts whose signed checkpoint is unavailable.
+      await _loadRecoveries(showError: false);
+      if (mounted) setState(() => _operationInProgress = false);
+    }
+    if (!mounted ||
+        ref.read(accountProvider).value?.activeAccountUuid !=
+            record.sourceAccountUuid) {
+      return;
+    }
+    if (failure is LedgerGiftFundingTerminalException) {
+      _showError(LedgerGiftFundingTerminalException.message);
+    } else if (failure != null &&
+        _recoveries.any(
+          (current) =>
+              current.link.address == record.link.address &&
+              current.state == PaymentLinkRecoveryState.draft,
+        )) {
+      _showError(
+        failure is LedgerGiftFundingUnavailableException
+            ? failure.toString()
+            : 'Funding could not be completed. Your gift card is saved. Try again.',
+      );
+    }
+  }
+
   Widget _buildRecoveryRow(PaymentLinkRecoveryRecord record) {
     final state = _recoveryRowState(record);
+    final canRecover = _canRecoverLedgerDraft(record);
     final actionsEnabled = state.canUseLink && !_operationInProgress;
     final copyEnabled =
         actionsEnabled && !_copyingLinkAddresses.contains(record.link.address);
@@ -2454,7 +2523,12 @@ class _PaymentLinksScreenState extends ConsumerState<PaymentLinksScreen> {
       amountText: '${formatZecAmount(record.link.amountZatoshi)} ZEC',
       dateText: _formatCardDate(record.link.createdAt),
       statusText: state.canUseLink ? null : state.statusText,
-      onAction: null,
+      actionLabel: canRecover
+          ? (record.isInertDraft ? 'Cancel draft' : 'Resume funding')
+          : null,
+      onAction: canRecover && !_operationInProgress
+          ? () => unawaited(_recoverLedgerDraft(record))
+          : null,
       showLinkActions: state.canUseLink,
       onCopyLink: copyEnabled ? () => _copyPaymentLink(record.link) : null,
       onShowQr: actionsEnabled ? () => _openShareQr(record) : null,
@@ -2467,6 +2541,7 @@ class _PaymentLinksScreenState extends ConsumerState<PaymentLinksScreen> {
 
   Widget _buildMobileRecoveryRow(PaymentLinkRecoveryRecord record) {
     final state = _recoveryRowState(record);
+    final canRecover = _canRecoverLedgerDraft(record);
     final actionsEnabled = state.canUseLink && !_operationInProgress;
     final copyEnabled =
         actionsEnabled && !_copyingLinkAddresses.contains(record.link.address);
@@ -2476,6 +2551,12 @@ class _PaymentLinksScreenState extends ConsumerState<PaymentLinksScreen> {
       amountText: '${formatZecAmount(record.link.amountZatoshi)} ZEC',
       dateText: _formatCardDate(record.link.createdAt),
       statusText: state.canUseLink ? null : state.statusText,
+      actionLabel: canRecover
+          ? (record.isInertDraft ? 'Cancel draft' : 'Resume funding')
+          : null,
+      onAction: canRecover && !_operationInProgress
+          ? () => unawaited(_recoverLedgerDraft(record))
+          : null,
       showLinkActions: state.canUseLink,
       onCopyLink: copyEnabled ? () => _copyPaymentLink(record.link) : null,
       onShowQr: actionsEnabled ? () => _openShareQr(record) : null,

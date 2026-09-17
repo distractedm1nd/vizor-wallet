@@ -112,7 +112,7 @@ class _AccountRemoveModalState extends State<AccountRemoveModal> {
         ? 'Copy it before removing this account.'
         : 'Copy them before removing this account.';
     return 'This account has ${widget.unsharedGiftCardCount} unshared gift card $plural. '
-        '$action';
+        'Open Gift Cards to resolve incomplete funding. $action';
   }
 
   @override
