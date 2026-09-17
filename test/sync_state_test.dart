@@ -4,6 +4,32 @@ import 'package:zcash_wallet/src/providers/sync_provider.dart';
 import 'package:zcash_wallet/src/rust/api/sync.dart' as rust_sync;
 
 void main() {
+  test('fully reserved shielded funds remain visible but cannot be spent', () {
+    final state = SyncState(
+      shieldedLockedBalance: BigInt.from(60),
+      transparentBalance: BigInt.from(40),
+    );
+    expect(state.displayShieldedBalance, BigInt.from(60));
+    expect(state.displaySpendableBalance, BigInt.zero);
+
+    final refreshed = state.withFetchedAccountData(
+      balance: _balance(
+        orchard: BigInt.zero,
+        saplingLocked: BigInt.from(10),
+        orchardLocked: BigInt.from(20),
+        ironwoodLocked: BigInt.from(30),
+        ironwood: BigInt.zero,
+        spendable: BigInt.zero,
+        total: BigInt.from(60),
+      ),
+      syncComplete: true,
+    );
+    expect(refreshed.displayShieldedBalance, BigInt.from(60));
+    expect(refreshed.displaySpendableBalance, BigInt.zero);
+    expect(refreshed.displayIronwoodHoldingsBalance, BigInt.from(30));
+    expect(refreshed.displayIronwoodBalance, BigInt.zero);
+  });
+
   test('pendingBalance is the explicit pending pool sum', () {
     final state = SyncState(
       transparentBalance: BigInt.from(100),
@@ -219,7 +245,7 @@ void main() {
       displayOrchardLockedBalance: BigInt.from(5),
       totalBalance: BigInt.zero,
       displayTotalBalance: BigInt.from(100),
-      displayShieldedBalance: BigInt.from(95),
+      displayShieldedBalance: BigInt.from(100),
       displaySpendableFreshness: SpendableBalanceFreshness.lastCompletedSync,
     );
     final transientZero = _balance(
@@ -239,7 +265,7 @@ void main() {
         orchardLocked: BigInt.from(7),
         ironwood: BigInt.from(42),
         spendable: BigInt.from(45),
-        total: BigInt.from(45),
+        total: BigInt.from(52),
       ),
       syncComplete: true,
     );
@@ -252,7 +278,7 @@ void main() {
     expect(syncing.displayOrchardLockedBalance, BigInt.from(5));
     expect(syncing.displayOrchardHoldingsBalance, BigInt.from(55));
     expect(syncing.displaySpendableBalance, BigInt.from(90));
-    expect(syncing.displayShieldedBalance, BigInt.from(95));
+    expect(syncing.displayShieldedBalance, BigInt.from(100));
     expect(syncing.displayTotalBalance, BigInt.from(100));
     expect(
       syncing.displaySpendableFreshness,
@@ -266,8 +292,8 @@ void main() {
     expect(completed.displayOrchardLockedBalance, BigInt.from(7));
     expect(completed.displayOrchardHoldingsBalance, BigInt.from(10));
     expect(completed.displaySpendableBalance, BigInt.from(45));
-    expect(completed.displayShieldedBalance, BigInt.from(45));
-    expect(completed.displayTotalBalance, BigInt.from(45));
+    expect(completed.displayShieldedBalance, BigInt.from(52));
+    expect(completed.displayTotalBalance, BigInt.from(52));
     expect(
       completed.displaySpendableFreshness,
       SpendableBalanceFreshness.authoritative,
@@ -666,6 +692,8 @@ void main() {
 rust_sync.WalletBalance _balance({
   required BigInt orchard,
   BigInt? orchardLocked,
+  BigInt? saplingLocked,
+  BigInt? ironwoodLocked,
   required BigInt ironwood,
   required BigInt spendable,
   required BigInt total,
@@ -677,9 +705,9 @@ rust_sync.WalletBalance _balance({
     orchard: orchard,
     ironwood: ironwood,
     transparentLocked: BigInt.zero,
-    saplingLocked: BigInt.zero,
+    saplingLocked: saplingLocked ?? BigInt.zero,
     orchardLocked: orchardLocked ?? BigInt.zero,
-    ironwoodLocked: BigInt.zero,
+    ironwoodLocked: ironwoodLocked ?? BigInt.zero,
     transparentPending: BigInt.zero,
     saplingPending: BigInt.zero,
     orchardPending: BigInt.zero,

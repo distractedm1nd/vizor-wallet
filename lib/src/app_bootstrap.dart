@@ -136,6 +136,8 @@ class AppSyncSnapshot {
     required this.orchardBalance,
     required this.ironwoodBalance,
     required this.orchardLockedBalance,
+    this.shieldedLockedBalance,
+    this.ironwoodLockedBalance,
     required this.transparentPendingBalance,
     required this.saplingPendingBalance,
     required this.orchardPendingBalance,
@@ -159,6 +161,8 @@ class AppSyncSnapshot {
   final BigInt orchardBalance;
   final BigInt ironwoodBalance;
   final BigInt orchardLockedBalance;
+  final BigInt? shieldedLockedBalance;
+  final BigInt? ironwoodLockedBalance;
   final BigInt transparentPendingBalance;
   final BigInt saplingPendingBalance;
   final BigInt orchardPendingBalance;
@@ -701,6 +705,9 @@ Future<AppSyncSnapshot> _loadInitialSyncSnapshot({
       orchardBalance: balance.orchard,
       ironwoodBalance: balance.ironwood,
       orchardLockedBalance: balance.orchardLocked,
+      ironwoodLockedBalance: balance.ironwoodLocked,
+      shieldedLockedBalance:
+          balance.saplingLocked + balance.orchardLocked + balance.ironwoodLocked,
       transparentPendingBalance: balance.transparentPending,
       saplingPendingBalance: balance.saplingPending,
       orchardPendingBalance: balance.orchardPending,
