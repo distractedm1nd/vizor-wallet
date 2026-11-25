@@ -12,8 +12,8 @@ const SENDER_MNEMONIC: &str = "winter shiver fetch refuse absurd mail pistol eig
 const FUNDING_ZEC: &str = "2.0";
 const FUNDING_ZATOSHI: u64 = 200_000_000;
 const SEND_ZATOSHI: u64 = 50_000_000;
-const CHANGE_CONFIRMATIONS: u32 = 3;
-const RECEIVED_CONFIRMATIONS: u32 = 6;
+const CHANGE_CONFIRMATIONS: u32 = 2;
+const RECEIVED_CONFIRMATIONS: u32 = 2;
 
 struct Wallet {
     _dir: TempDir,

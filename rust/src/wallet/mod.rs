@@ -1,6 +1,7 @@
 use std::num::NonZeroU32;
 
-use zcash_client_backend::data_api::wallet::ConfirmationsPolicy;
+use zcash_client_backend::data_api::wallet::{ConfirmationTier, ConfirmationsPolicy};
+use zcash_protocol::value::Zatoshis;
 
 pub(crate) mod addresses;
 pub(crate) mod balance_cache;
@@ -28,10 +29,16 @@ pub(crate) mod tree_states;
 pub mod voting;
 pub(crate) mod wallet_summary_cache;
 
-// Confirmations before the wallet spends its own change.
-const TRUSTED_CONFIRMATIONS: u32 = 3;
-// Vizor's product policy accepts externally received funds sooner than the
-// ZIP 315 default of 10 confirmations.
+// Confirmations before the wallet spends its own change. Anchoring one block
+// behind the tip also allows externally received transfers under 10 ZEC to
+// spend at 2 confirmations.
+const TRUSTED_CONFIRMATIONS: u32 = 2;
+// Vizor's product policy scales confirmations for externally received funds by
+// transfer amount: < 10 ZEC => 2, < 1000 ZEC => 4, >= 1000 ZEC => 6.
+const SMALL_TRANSFER_BELOW_ZAT: u64 = 1_000_000_000; // 10 ZEC
+const SMALL_TRANSFER_CONFIRMATIONS: u32 = 2;
+const MEDIUM_TRANSFER_BELOW_ZAT: u64 = 100_000_000_000; // 1000 ZEC
+const MEDIUM_TRANSFER_CONFIRMATIONS: u32 = 4;
 const UNTRUSTED_CONFIRMATIONS: u32 = 6;
 const ALLOW_ZERO_CONFIRMATION_SHIELDING: bool = true;
 // Gift Card claims spend a bearer card into the recipient's own wallet. Two
@@ -53,6 +60,19 @@ fn confirmations_policy() -> ConfirmationsPolicy {
         ALLOW_ZERO_CONFIRMATION_SHIELDING,
     )
     .expect("trusted confirmations do not exceed untrusted confirmations")
+    .with_untrusted_tiers(&[
+        ConfirmationTier::new(
+            Zatoshis::const_from_u64(SMALL_TRANSFER_BELOW_ZAT),
+            NonZeroU32::new(SMALL_TRANSFER_CONFIRMATIONS)
+                .expect("small transfer confirmations are nonzero"),
+        ),
+        ConfirmationTier::new(
+            Zatoshis::const_from_u64(MEDIUM_TRANSFER_BELOW_ZAT),
+            NonZeroU32::new(MEDIUM_TRANSFER_CONFIRMATIONS)
+                .expect("medium transfer confirmations are nonzero"),
+        ),
+    ])
+    .expect("amount confirmation tiers are valid")
 }
 
 fn payment_link_claim_confirmations_policy() -> ConfirmationsPolicy {
@@ -69,25 +89,25 @@ mod tests {
     use zip32::Scope;
 
     #[test]
-    fn confirmation_policy_uses_six_confirmations_for_external_funds() {
+    fn confirmation_policy_uses_six_confirmations_as_maximum_for_external_funds() {
         let policy = confirmations_policy();
 
         assert_eq!(u32::from(policy.untrusted()), UNTRUSTED_CONFIRMATIONS);
     }
 
     #[test]
-    fn change_is_anchored_on_its_third_confirmation() {
+    fn change_is_anchored_on_its_second_confirmation() {
         // The SDK anchors `trusted` blocks below the tip. Change mined at 100
-        // has its third confirmation at tip 102.
+        // has its second confirmation at tip 101.
         let tip = 100 + TRUSTED_CONFIRMATIONS - 1;
         assert_eq!(tip - u32::from(confirmations_policy().trusted()), 100);
     }
 
     #[test]
-    fn external_funds_become_spendable_after_six_confirmations() {
+    fn external_funds_scale_confirmations_with_transfer_amount() {
         let policy = confirmations_policy();
-        let confirmations_remaining = |target_height| {
-            policy.confirmations_until_spendable(
+        let confirmations_remaining = |target_height, amount_zat| {
+            policy.confirmations_until_spendable_for_value(
                 TargetHeight::from(target_height),
                 PoolType::Shielded(ShieldedPool::Orchard),
                 Some(Scope::External),
@@ -95,11 +115,35 @@ mod tests {
                 false,
                 None,
                 false,
+                Zatoshis::const_from_u64(amount_zat),
             )
         };
 
-        assert_eq!(confirmations_remaining(105), 1);
-        assert_eq!(confirmations_remaining(106), 0);
+        // < 10 ZEC => 2 confirmations (spendable at target 102, i.e. tip 101).
+        assert_eq!(
+            confirmations_remaining(101, SMALL_TRANSFER_BELOW_ZAT - 1),
+            1
+        );
+        assert_eq!(
+            confirmations_remaining(102, SMALL_TRANSFER_BELOW_ZAT - 1),
+            0
+        );
+
+        // 10 ZEC .. < 1000 ZEC => 4 confirmations (spendable at target 104, tip 103).
+        assert_eq!(confirmations_remaining(103, SMALL_TRANSFER_BELOW_ZAT), 1);
+        assert_eq!(confirmations_remaining(104, SMALL_TRANSFER_BELOW_ZAT), 0);
+        assert_eq!(
+            confirmations_remaining(103, MEDIUM_TRANSFER_BELOW_ZAT - 1),
+            1
+        );
+        assert_eq!(
+            confirmations_remaining(104, MEDIUM_TRANSFER_BELOW_ZAT - 1),
+            0
+        );
+
+        // >= 1000 ZEC => 6 confirmations (spendable at target 106, tip 105).
+        assert_eq!(confirmations_remaining(105, MEDIUM_TRANSFER_BELOW_ZAT), 1);
+        assert_eq!(confirmations_remaining(106, MEDIUM_TRANSFER_BELOW_ZAT), 0);
     }
 
     #[test]

@@ -12,7 +12,11 @@ use std::collections::BTreeMap;
 use zcash_client_backend::data_api::wallet::TargetHeight;
 use zcash_client_sqlite::{error::SqliteClientError, AccountUuid, ExtensionTransaction};
 use zcash_primitives::transaction::fees::zip317;
-use zcash_protocol::{consensus::BlockHeight, PoolType, ShieldedPool};
+use zcash_protocol::{
+    consensus::BlockHeight,
+    value::{Zatoshis, MAX_MONEY},
+    PoolType, ShieldedPool,
+};
 use zip32::Scope;
 
 use super::{PendingSpendable, WalletBalance};
@@ -35,7 +39,17 @@ fn waiting_note_sql(pool: &str) -> String {
                 t.mined_height,
                 IFNULL(t.trust_status, 0),
                 MAX(tt.mined_height),
-                MIN(IFNULL(tt.trust_status, 0))
+                MIN(IFNULL(tt.trust_status, 0)),
+                (COALESCE((SELECT SUM(value) FROM sapling_received_notes
+                    WHERE transaction_id = t.id_tx AND account_id = rn.account_id), 0)
+                 + COALESCE((SELECT SUM(value) FROM orchard_received_notes
+                    WHERE transaction_id = t.id_tx AND account_id = rn.account_id), 0)
+                 + COALESCE((SELECT SUM(value) FROM ironwood_received_notes
+                    WHERE transaction_id = t.id_tx AND account_id = rn.account_id
+                      AND id NOT IN (SELECT note_id FROM ironwood_one_time_disputed_receipts)), 0)
+                 + COALESCE((SELECT SUM(value_zat) FROM transparent_received_outputs
+                    WHERE transaction_id = t.id_tx AND account_id = rn.account_id), 0)),
+                COALESCE(SUM(tro.value_zat), 0)
          FROM {pool}_received_notes rn
          JOIN accounts a ON a.id = rn.account_id
          JOIN transactions t ON t.id_tx = rn.transaction_id
@@ -163,6 +177,7 @@ pub(super) fn read(
                             tx_trusted: row.get(6)?,
                             max_shielding_input_height: row.get(7)?,
                             shielding_inputs_trusted: row.get(8)?,
+                            transfer_value: row.get::<_, u64>(9)?.max(row.get::<_, u64>(10)?),
                         },
                     ))
                 },
@@ -208,6 +223,7 @@ struct WaitingNote {
     tx_trusted: bool,
     max_shielding_input_height: Option<u32>,
     shielding_inputs_trusted: bool,
+    transfer_value: u64,
 }
 
 impl WaitingNote {
@@ -215,7 +231,9 @@ impl WaitingNote {
     /// confirmation policy and the anchor reaching its block.
     fn blocks_until_spendable(&self, target_height: u32) -> u32 {
         let policy = crate::wallet::confirmations_policy();
-        let by_policy = policy.confirmations_until_spendable(
+        let transfer_value =
+            Zatoshis::from_u64(self.transfer_value).unwrap_or(Zatoshis::const_from_u64(MAX_MONEY));
+        let by_policy = policy.confirmations_until_spendable_for_value(
             TargetHeight::from(target_height),
             PoolType::Shielded(self.pool),
             match self.scope {
@@ -227,6 +245,7 @@ impl WaitingNote {
             self.tx_trusted,
             self.max_shielding_input_height.map(BlockHeight::from_u32),
             self.shielding_inputs_trusted,
+            transfer_value,
         );
         by_policy.max(blocks_until_anchored(
             self.mined_height,
@@ -323,7 +342,7 @@ mod tests {
         st.scan_cached_blocks(height, 1);
     }
 
-    /// Receives `VALUE` at `address_type` and follows it block by block: at
+    /// Receives `value` at `address_type` and follows it block by block: at
     /// every depth the entries account for all pending value, and the funds
     /// turn spendable exactly when the entry's block count runs out.
     ///
@@ -333,12 +352,13 @@ mod tests {
     fn follows_the_summary(
         address_type: AddressType,
         is_change: bool,
+        value: u64,
         blocks_at_first_confirmation: u32,
     ) {
         let mut st = wallet();
         let fvk = OrchardPoolTester::test_account_fvk(&st);
         let (height, _, _) =
-            st.generate_next_block(&IronwoodFvk(fvk.clone()), address_type, zat(VALUE));
+            st.generate_next_block(&IronwoodFvk(fvk.clone()), address_type, zat(value));
         st.scan_cached_blocks(height, 1);
         if is_change {
             st.wallet()
@@ -358,12 +378,12 @@ mod tests {
             );
             if expected == 0 {
                 assert!(entries.is_empty(), "nothing waits once spendable");
-                assert_eq!(spendable, VALUE, "spendable when the count runs out");
+                assert_eq!(spendable, value, "spendable when the count runs out");
                 break;
             }
             assert_eq!(spendable, 0, "not spendable while an entry waits");
             assert_eq!(entries.len(), 1);
-            assert_eq!(entries[0].value, VALUE);
+            assert_eq!(entries[0].value, value);
             assert_eq!(entries[0].blocks_until_spendable, expected);
             assert_eq!(entries[0].confirmations, confirmations);
             assert_eq!(entries[0].is_change, is_change);
@@ -374,18 +394,38 @@ mod tests {
     }
 
     #[test]
-    fn a_receipt_waits_for_its_sixth_confirmation() {
-        follows_the_summary(AddressType::DefaultExternal, false, 5);
+    fn a_small_receipt_waits_for_its_second_confirmation() {
+        follows_the_summary(AddressType::DefaultExternal, false, VALUE, 1);
     }
 
     #[test]
-    fn change_waits_for_its_third_confirmation() {
-        follows_the_summary(AddressType::Internal, true, 2);
+    fn a_medium_receipt_waits_for_its_fourth_confirmation() {
+        follows_the_summary(
+            AddressType::DefaultExternal,
+            false,
+            1_000_000_000, // 10 ZEC
+            3,
+        );
+    }
+
+    #[test]
+    fn a_large_receipt_waits_for_its_sixth_confirmation() {
+        follows_the_summary(
+            AddressType::DefaultExternal,
+            false,
+            100_000_000_000, // 1000 ZEC
+            5,
+        );
+    }
+
+    #[test]
+    fn change_waits_for_its_second_confirmation() {
+        follows_the_summary(AddressType::Internal, true, VALUE, 1);
     }
 
     #[test]
     fn internal_funds_that_are_not_change_wait_as_long() {
-        follows_the_summary(AddressType::Internal, false, 2);
+        follows_the_summary(AddressType::Internal, false, VALUE, 1);
     }
 
     /// A wallet holding one receipt of `VALUE` at its first confirmation.
@@ -494,7 +534,9 @@ mod tests {
         assert_eq!(pending, VALUE);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].value, VALUE);
-        assert_eq!(entries[0].blocks_until_spendable, 6);
+        // `VALUE` (1.3 ZEC) is under 10 ZEC, so once mined in the next block it
+        // needs 2 confirmations total.
+        assert_eq!(entries[0].blocks_until_spendable, 2);
         assert_eq!(entries[0].confirmations, 0);
 
         // Still pending, but too long unmined to promise the next block.
@@ -513,22 +555,23 @@ mod tests {
     fn every_waiting_note_is_read_once() {
         let mut st = wallet();
         let fvk = OrchardPoolTester::test_account_fvk(&st);
+        let large_value = 100_000_000_000u64; // 1000 ZEC => 6 confirmations
         for _ in 0..3 {
             let (height, _, _) = st.generate_next_block(
                 &IronwoodFvk(fvk.clone()),
                 AddressType::DefaultExternal,
-                zat(VALUE),
+                zat(large_value),
             );
             st.scan_cached_blocks(height, 1);
         }
 
         let (entries, _, pending) = snapshot(&mut st);
-        assert_eq!(pending, 3 * VALUE);
+        assert_eq!(pending, 3 * large_value);
         assert_eq!(entries.len(), 3);
         let mut blocks: Vec<u32> = entries.iter().map(|e| e.blocks_until_spendable).collect();
         blocks.sort_unstable();
         assert_eq!(blocks, [3, 4, 5]);
-        assert!(entries.iter().all(|entry| entry.value == VALUE));
+        assert!(entries.iter().all(|entry| entry.value == large_value));
     }
 
     #[test]
