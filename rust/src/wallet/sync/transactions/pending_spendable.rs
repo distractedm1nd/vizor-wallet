@@ -29,7 +29,23 @@ use super::{PendingSpendable, WalletBalance};
 /// ([`UNMINED_GRACE_BLOCKS`]). A note at or below the marginal fee is
 /// uneconomic, which the summary counts apart from pending value. The key scope is the note's own: change
 /// has no address row to read one from.
+fn tx_received_value_sql(tx_id_expr: &str, account_id_expr: &str) -> String {
+    format!(
+        "(COALESCE((SELECT SUM(value) FROM sapling_received_notes
+            WHERE transaction_id = {tx_id_expr} AND account_id = {account_id_expr}), 0)
+         + COALESCE((SELECT SUM(value) FROM orchard_received_notes
+            WHERE transaction_id = {tx_id_expr} AND account_id = {account_id_expr}), 0)
+         + COALESCE((SELECT SUM(value) FROM ironwood_received_notes
+            WHERE transaction_id = {tx_id_expr} AND account_id = {account_id_expr}
+              AND id NOT IN (SELECT note_id FROM ironwood_one_time_disputed_receipts)), 0)
+         + COALESCE((SELECT SUM(value_zat) FROM transparent_received_outputs
+            WHERE transaction_id = {tx_id_expr} AND account_id = {account_id_expr}), 0))"
+    )
+}
+
 fn waiting_note_sql(pool: &str) -> String {
+    let tx_received_value = tx_received_value_sql("t.id_tx", "rn.account_id");
+    let shielding_origin_value = tx_received_value_sql("tro.transaction_id", "tro.account_id");
     format!(
         "SELECT rn.id,
                 t.txid,
@@ -40,16 +56,11 @@ fn waiting_note_sql(pool: &str) -> String {
                 IFNULL(t.trust_status, 0),
                 MAX(tt.mined_height),
                 MIN(IFNULL(tt.trust_status, 0)),
-                (COALESCE((SELECT SUM(value) FROM sapling_received_notes
-                    WHERE transaction_id = t.id_tx AND account_id = rn.account_id), 0)
-                 + COALESCE((SELECT SUM(value) FROM orchard_received_notes
-                    WHERE transaction_id = t.id_tx AND account_id = rn.account_id), 0)
-                 + COALESCE((SELECT SUM(value) FROM ironwood_received_notes
-                    WHERE transaction_id = t.id_tx AND account_id = rn.account_id
-                      AND id NOT IN (SELECT note_id FROM ironwood_one_time_disputed_receipts)), 0)
-                 + COALESCE((SELECT SUM(value_zat) FROM transparent_received_outputs
-                    WHERE transaction_id = t.id_tx AND account_id = rn.account_id), 0)),
-                COALESCE(SUM(tro.value_zat), 0)
+                {tx_received_value},
+                COALESCE(SUM(tro.value_zat), 0),
+                COALESCE(MAX(CASE WHEN tro.id IS NOT NULL
+                    AND (tt.mined_height IS NULL OR tt.mined_height > :floor)
+                 THEN {shielding_origin_value} ELSE 0 END), 0)
          FROM {pool}_received_notes rn
          JOIN accounts a ON a.id = rn.account_id
          JOIN transactions t ON t.id_tx = rn.transaction_id
@@ -165,19 +176,24 @@ pub(super) fn read(
                     ":after": after,
                 },
                 |row| {
+                    let value = row.get(3)?;
                     Ok((
                         row.get::<_, i64>(0)?,
                         WaitingNote {
                             txid: row.get(1)?,
                             pool,
                             scope: row.get(2)?,
-                            value: row.get(3)?,
+                            value,
                             is_change: row.get(4)?,
                             mined_height: row.get(5)?,
                             tx_trusted: row.get(6)?,
                             max_shielding_input_height: row.get(7)?,
                             shielding_inputs_trusted: row.get(8)?,
-                            transfer_value: row.get::<_, u64>(9)?.max(row.get::<_, u64>(10)?),
+                            transfer_value: row
+                                .get::<_, u64>(9)?
+                                .max(value)
+                                .max(row.get::<_, u64>(10)?)
+                                .max(row.get::<_, u64>(11)?),
                         },
                     ))
                 },

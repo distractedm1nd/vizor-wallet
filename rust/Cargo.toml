@@ -290,15 +290,15 @@ opt-level = 3
 opt-level = 3
 
 [patch.crates-io]
-zakura-client-backend = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "30fe022853ee51f7ab9b238b4e0d545e5f9aad21" }
-zakura-client-sqlite = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "30fe022853ee51f7ab9b238b4e0d545e5f9aad21" }
-zakura-pczt = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "30fe022853ee51f7ab9b238b4e0d545e5f9aad21" }
-zakura-filters = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "30fe022853ee51f7ab9b238b4e0d545e5f9aad21" }
-zakura-one-time-ivk = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "30fe022853ee51f7ab9b238b4e0d545e5f9aad21" }
-zakura-near-intents = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "30fe022853ee51f7ab9b238b4e0d545e5f9aad21" }
-zakura-pir-protocol = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "30fe022853ee51f7ab9b238b4e0d545e5f9aad21" }
-zakura-pir-client = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "30fe022853ee51f7ab9b238b4e0d545e5f9aad21" }
-zakura-pir-publisher = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "30fe022853ee51f7ab9b238b4e0d545e5f9aad21" }
-zakura-pir-query-server = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "30fe022853ee51f7ab9b238b4e0d545e5f9aad21" }
-zakura-pir-config = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "30fe022853ee51f7ab9b238b4e0d545e5f9aad21" }
-zakura-service-config = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "30fe022853ee51f7ab9b238b4e0d545e5f9aad21" }
+zakura-client-backend = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "01ee899d4b85e6e2ad390eaa2608e7d58751899a" }
+zakura-client-sqlite = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "01ee899d4b85e6e2ad390eaa2608e7d58751899a" }
+zakura-pczt = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "01ee899d4b85e6e2ad390eaa2608e7d58751899a" }
+zakura-filters = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "01ee899d4b85e6e2ad390eaa2608e7d58751899a" }
+zakura-one-time-ivk = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "01ee899d4b85e6e2ad390eaa2608e7d58751899a" }
+zakura-near-intents = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "01ee899d4b85e6e2ad390eaa2608e7d58751899a" }
+zakura-pir-protocol = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "01ee899d4b85e6e2ad390eaa2608e7d58751899a" }
+zakura-pir-client = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "01ee899d4b85e6e2ad390eaa2608e7d58751899a" }
+zakura-pir-publisher = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "01ee899d4b85e6e2ad390eaa2608e7d58751899a" }
+zakura-pir-query-server = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "01ee899d4b85e6e2ad390eaa2608e7d58751899a" }
+zakura-pir-config = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "01ee899d4b85e6e2ad390eaa2608e7d58751899a" }
+zakura-service-config = { git = "https://github.com/zcashlabs/wallet-libraries.git", rev = "01ee899d4b85e6e2ad390eaa2608e7d58751899a" }
